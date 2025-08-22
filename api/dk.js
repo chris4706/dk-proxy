@@ -9,12 +9,11 @@ export default async function handler(req) {
 
   // Build candidate endpoints (we'll try each until one works)
   const now = Date.now();
-  const paths = group
+    const paths = group
     ? [
         `/sites/${site}/api/v5/eventgroups/${group}?format=json&t=${now}`,
       ]
     : [
-        // League root with all current event groups
         `/sites/${site}/api/v5/sports/baseball/mlb?format=json&t=${now}`,
       ];
 
