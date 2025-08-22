@@ -1,25 +1,25 @@
-// /api/dk.js  — Vercel Edge Function to proxy DraftKings sportsbook JSON
-
+// /api/dk.js  – Vercel Edge Function to proxy DraftKings MLB event groups
 export const config = { runtime: 'edge' };
+
+const SITES = ['US-NJ', 'US-NY', 'US-PA', 'US-MA', 'US-IL', 'US-CO', 'US-AZ'];
 
 export default async function handler(req) {
   const url = new URL(req.url);
-  const site = (url.searchParams.get('site') || 'US-NJ').toUpperCase();
-  const group = url.searchParams.get('group'); // optional: event group id
-
-  // Build candidate endpoints (we'll try each until one works)
+  const site = url.searchParams.get('site') || 'US-NJ';
+  const group = url.searchParams.get('group'); // e.g. 84240 (MLB Game Lines) or other group ids
   const now = Date.now();
-    const paths = group
-    ? [
-        `/sites/${site}/api/v5/eventgroups/${group}?format=json&t=${now}`,
-      ]
-    : [
-        `/sites/${site}/api/v5/sports/baseball/mlb?format=json&t=${now}`,
-      ];
 
+  // Build paths:
+  // - no group => list MLB sport (contains eventGroups with ids)
+  // - with group => fetch that eventgroup
+  const paths = group
+    ? [`/sites/${site}/api/v5/eventgroups/${group}?format=json&t=${now}`]
+    : [`/sites/${site}/api/v5/sports/baseball/mlb?format=json&t=${now}`];
+
+  // Try both primary & us-nj subdomain, some regions vary
   const hosts = [
-    'https://sportsbook.draftkings.com',
-    `https://sportsbook-us-nj.draftkings.com`, // alt geo host often used by DK
+    `https://sportsbook.draftkings.com`,
+    `https://sportsbook-us-nj.draftkings.com`,
   ];
 
   const headers = {
@@ -30,68 +30,33 @@ export default async function handler(req) {
   };
 
   const errors = [];
-
-  // Try each host+path combination until one returns valid JSON
   for (const h of hosts) {
     for (const p of paths) {
       const endpoint = `${h}${p}`;
       try {
-        const res = await fetch(endpoint, {
-          headers,
-          // Abort after 12s to avoid hanging
-          signal: AbortSignal.timeout(12_000),
-        });
-
-        if (!res.ok) {
-          errors.push({ endpoint, error: `HTTP ${res.status}` });
-          continue;
-        }
-
+        const res = await fetch(endpoint, { headers, cf: { cacheTtl: 0 } });
         const ct = res.headers.get('content-type') || '';
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         if (!ct.includes('application/json')) {
-          const text = await res.text();
-          if (text && text.trim().startsWith('{')) {
-            // Some DK edges send JSON without the proper header — try to parse
-            const data = JSON.parse(text);
-            return jsonResponse({ ok: true, site, group, endpoint, data });
-          }
-          errors.push({
-            endpoint,
-            error: `Unexpected content-type: ${ct} (looks like HTML)`,
-          });
-          continue;
+          throw new Error(`Unexpected content-type: ${ct} (looks like HTML)`);
         }
-
         const data = await res.json();
-        return jsonResponse({ ok: true, site, group, endpoint, data });
+        return new Response(JSON.stringify({ ok: true, site, group: group ?? null, endpoint, data }, null, 2), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-store',
+            'access-control-allow-origin': '*',
+          },
+        });
       } catch (e) {
-        errors.push({ endpoint, error: String(e?.message || e) });
+        errors.push({ endpoint, error: String(e.message || e) });
       }
     }
   }
 
-  // If we got here, everything failed
-  return jsonResponse(
-    {
-      ok: false,
-      message: 'DK: all endpoints failed',
-      site,
-      group,
-      errors,
-    },
-    502
-  );
-}
-
-// Utility: JSON + CORS
-function jsonResponse(body, status = 200) {
-  return new Response(JSON.stringify(body, null, 2), {
-    status,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-store',
-      'access-control-allow-origin': '*',
-      'access-control-allow-headers': '*',
-    },
+  return new Response(JSON.stringify({ ok: false, message: 'DK: all endpoints failed', site, group: group ?? null, errors }, null, 2), {
+    status: 502,
+    headers: { 'content-type': 'application/json; charset=utf-8', 'access-control-allow-origin': '*' },
   });
 }
