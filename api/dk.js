@@ -12,15 +12,15 @@ export default async function handler(req, res) {
   const group = urlObj.searchParams.get("group"); // e.g. 84240 for MLB
 
   // DK endpoints we’ll try in order
-  const endpoints = [];
+   const endpoints = [];
   const ts = Date.now();
 
   if (group) {
-    endpoints.push(`https://sportsbook.draftkings.com/sites/${site}/api/v5/eventgroups/${group}?format=json&t=${ts}`);
-    endpoints.push(`https://sportsbook-us-nj.draftkings.com/sites/${site}/api/v5/eventgroups/${group}?format=json&t=${ts}`);
+    endpoints.push(`https://sportsbook-us-nj.draftkings.com/api/odds/v5/eventgroups/${group}?format=json&t=${ts}`);
+    endpoints.push(`https://sportsbook.draftkings.com/api/odds/v5/eventgroups/${group}?format=json&t=${ts}`);
   } else {
-    endpoints.push(`https://sportsbook.draftkings.com/sites/${site}/api/v5/sports?format=json&t=${ts}`);
-    endpoints.push(`https://sportsbook-us-nj.draftkings.com/sites/${site}/api/v5/sports?format=json&t=${ts}`);
+    endpoints.push(`https://sportsbook-us-nj.draftkings.com/api/odds/v5/leagues/baseball/mlb?format=json&t=${ts}`);
+    endpoints.push(`https://sportsbook.draftkings.com/api/odds/v5/leagues/baseball/mlb?format=json&t=${ts}`);
   }
 
   const headers = {
