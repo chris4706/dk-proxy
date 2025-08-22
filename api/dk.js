@@ -1,43 +1,39 @@
-// /api/dk.js  — Vercel Serverless Edge Function to proxy DraftKings MLB event groups
+// /api/dk.js – Vercel Serverless Edge Function to proxy DraftKings MLB event groups
 export const config = { runtime: 'edge' };
 
 export default async function handler(req) {
   try {
     const { searchParams } = new URL(req.url);
-    const site  = searchParams.get('site')  || 'US-NJ';      // pin to a state feed
-    const group = searchParams.get('group') || '84240';      // MLB event group
-    const path  = `/sites/${site}/api/v5/eventgroups/${group}?format=json&t=${Date.now()}`;
+    const site = searchParams.get('site') || 'US-NJ';   // DraftKings site/state
+    const group = searchParams.get('group') || '84240'; // MLB event group (all games)
+    const path = `/sites/${site}/api/v5/eventgroups/${group}?format=json&t=${Date.now()}`;
     const dkUrl = `https://sportsbook.draftkings.com${path}`;
 
-    const headers = {
-      'Accept': 'application/json, text/plain, */*',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
-      'Referer': 'https://sportsbook.draftkings.com/'
-    };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
 
-    // Try twice (DK sometimes serves an HTML splash first)
-    for (let i = 0; i < 2; i++) {
-      const url = i === 0 ? dkUrl : dkUrl + `&u=${Date.now()}`;
-      const res = await fetch(url, { headers, redirect: 'follow' });
-      const text = await res.text();
-
-      // If response header is JSON or body parses as JSON, return it
-      const ct = res.headers.get('content-type') || '';
-      if (ct.includes('application/json')) {
-        return new Response(text, { status: 200, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' }});
-      }
-      try {
-        const j = JSON.parse(text);
-        return new Response(JSON.stringify(j), { status: 200, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' }});
-      } catch (_) {
-        // fall through, retry once
-      }
-    }
-    return new Response(JSON.stringify({ error: 'Non-JSON from DK' }), { status: 502, headers: { 'content-type': 'application/json' }});
-  } catch (e) {
-    return new Response(JSON.stringify({ error: e.message || String(e) }), {
-      status: 500,
-      headers: { 'content-type': 'application/json' }
+    const res = await fetch(dkUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json, text/plain, */*',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
+        'Referer': 'https://sportsbook.draftkings.com/'
+      },
+      signal: controller.signal
     });
+
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      return new Response(JSON.stringify({ error: `DK returned ${res.status}` }), { status: res.status });
+    }
+
+    const data = await res.json();
+    return new Response(JSON.stringify(data), {
+      headers: { 'content-type': 'application/json' },
+    });
+
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message || 'Unknown error' }), { status: 500 });
   }
 }
